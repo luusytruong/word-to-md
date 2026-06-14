@@ -1,0 +1,50 @@
+{
+  "name": "word-to-md",
+  "version": "1.0.0",
+  "description": "Convert .docx files to markdown",
+  "type": "module",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "word2md": "bin/word2md.js"
+  },
+  "files": [
+    "dist",
+    "bin",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup && tsc --emitDeclarationOnly --declaration --outDir dist",
+    "dev": "tsup --watch",
+    "prepublishOnly": "pnpm build"
+  },
+  "keywords": [
+    "docx",
+    "markdown",
+    "word",
+    "converter",
+    "cli"
+  ],
+  "author": "Luu Sy Truong",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/luusytruong/word-to-md"
+  },
+  "bugs": {
+    "url": "https://github.com/luusytruong/word-to-md/issues"
+  },
+  "dependencies": {
+    "commander": "^15.0.0",
+    "jsdom": "^29.1.1",
+    "mammoth": "^1.12.0",
+    "p-limit": "^7.3.0"
+  },
+  "devDependencies": {
+    "@types/jsdom": "^28.0.3",
+    "@types/node": "^25.9.3",
+    "tsup": "^8.5.1",
+    "typescript": "^6.0.3"
+  }
+}
