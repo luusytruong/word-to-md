@@ -95,4 +95,5 @@ dist-ssr
 *.sw?
 
 # Testing
-dvn*
+test
+output

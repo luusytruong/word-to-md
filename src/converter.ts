@@ -1,8 +1,10 @@
-interface ConvertContext {
-  listStack: { type: string; count: number }[];
-}
+import {
+  flattenTableToMd,
+  ConvertContext,
+  GenericElement,
+} from "./table-flatten";
 
-export function htmlToMarkdown(html: string): string {
+export async function htmlToMarkdown(html: string): Promise<string> {
   const isBrowser =
     typeof window !== "undefined" && typeof window.document !== "undefined";
   let bodyNode: any, NodeClass: any;
@@ -13,10 +15,8 @@ export function htmlToMarkdown(html: string): string {
     bodyNode = doc.body;
     NodeClass = window.Node;
   } else {
-    // Dynamic require so bundlers don't break in browser environment
-    const _req = typeof require !== "undefined" ? require : () => ({}) as any;
-    const jsdom = _req("jsdom");
-    const { JSDOM } = jsdom;
+    // Use dynamic import for ESM compatibility in Node.js
+    const { JSDOM } = await import("jsdom");
     const dom = new JSDOM(html);
     bodyNode = dom.window.document.body;
     NodeClass = dom.window.Node;
@@ -35,8 +35,9 @@ function nodeToMd(node: any, ctx: ConvertContext, NodeClass: any): string {
   if (node.nodeType !== NodeClass.ELEMENT_NODE) return "";
 
   const tag = node.tagName.toLowerCase();
+
   const ch = () =>
-    Array.from(node.childNodes)
+    Array.from(node.childNodes as ArrayLike<any>)
       .map((c) => nodeToMd(c, ctx, NodeClass))
       .join("");
 
@@ -53,39 +54,45 @@ function nodeToMd(node: any, ctx: ConvertContext, NodeClass: any): string {
       return "\n##### " + ch().trim() + "\n";
     case "h6":
       return "\n###### " + ch().trim() + "\n";
+
     case "p": {
       const t = ch().trim();
       return t ? "\n" + t + "\n" : "\n";
     }
+
     case "strong":
     case "b": {
       const raw = ch().replace(/\t/g, " ");
-      const leadMatch = raw.match(/^(\s*)/);
-      const lead = leadMatch ? leadMatch[1] : "";
       const trimmed = raw.trim();
-      return trimmed ? lead + "**" + trimmed + "**" : raw;
+      if (!trimmed) return raw;
+      const lead = raw.match(/^(\s*)/)?.[1] ?? "";
+      const trail = raw.match(/(\s*)$/)?.[1] ?? "";
+      return lead + "**" + trimmed + "**" + trail;
     }
     case "em":
     case "i": {
       const raw = ch().replace(/\t/g, " ");
-      const leadMatch = raw.match(/^(\s*)/);
-      const lead = leadMatch ? leadMatch[1] : "";
       const trimmed = raw.trim();
-      return trimmed ? lead + "_" + trimmed + "_" : raw;
+      if (!trimmed) return raw;
+      const lead = raw.match(/^(\s*)/)?.[1] ?? "";
+      const trail = raw.match(/(\s*)$/)?.[1] ?? "";
+      return lead + "_" + trimmed + "_" + trail;
     }
+
     case "u":
       return ch();
     case "del":
     case "s":
-      return "~~" + ch() + "~~";
+      return "~~" + ch().trim() + "~~";
     case "code":
       return "`" + ch() + "`";
     case "pre":
       return "\n```\n" + (node.textContent || "").trim() + "\n```\n";
     case "br":
-      return "  \n";
+      return "<br>";
     case "hr":
       return "\n---\n";
+
     case "blockquote":
       return (
         "\n" +
@@ -96,6 +103,7 @@ function nodeToMd(node: any, ctx: ConvertContext, NodeClass: any): string {
           .join("\n") +
         "\n"
       );
+
     case "a": {
       const href = node.getAttribute("href") || "";
       const label = ch().trim();
@@ -104,18 +112,19 @@ function nodeToMd(node: any, ctx: ConvertContext, NodeClass: any): string {
     case "img": {
       const alt = node.getAttribute("alt") || "image";
       const src = node.getAttribute("src") || "";
-      return `![${alt}](${src})`;
+      return src ? `![${alt}](${src})` : "";
     }
+
     case "ul": {
       ctx.listStack.push({ type: "ul", count: 0 });
       const depth = ctx.listStack.length - 1;
       const out =
         "\n" +
-        Array.from(node.children)
-          .map((li: any) => {
-            const inner = listItemToMd(li, ctx, NodeClass);
-            return "  ".repeat(depth) + "- " + inner;
-          })
+        Array.from(node.children as ArrayLike<any>)
+          .map(
+            (li) =>
+              "  ".repeat(depth) + "- " + listItemToMd(li, ctx, NodeClass),
+          )
           .join("\n") +
         "\n";
       ctx.listStack.pop();
@@ -126,20 +135,27 @@ function nodeToMd(node: any, ctx: ConvertContext, NodeClass: any): string {
       const depth = ctx.listStack.length - 1;
       const out =
         "\n" +
-        Array.from(node.children)
-          .map((li: any) => {
+        Array.from(node.children as ArrayLike<any>)
+          .map((li) => {
             ctx.listStack[ctx.listStack.length - 1].count++;
             const n = ctx.listStack[ctx.listStack.length - 1].count;
-            const inner = listItemToMd(li, ctx, NodeClass);
-            return "  ".repeat(depth) + n + ". " + inner;
+            return (
+              "  ".repeat(depth) + n + ". " + listItemToMd(li, ctx, NodeClass)
+            );
           })
           .join("\n") +
         "\n";
       ctx.listStack.pop();
       return out;
     }
+
     case "table":
-      return tableToMd(node, NodeClass) + "\n";
+      return (
+        flattenTableToMd(node as GenericElement, (td) =>
+          cellToMdInline(td, NodeClass),
+        ) + "\n"
+      );
+
     default:
       return ch();
   }
@@ -148,9 +164,8 @@ function nodeToMd(node: any, ctx: ConvertContext, NodeClass: any): string {
 function listItemToMd(li: any, ctx: ConvertContext, NodeClass: any): string {
   let text = "";
   let sublists = "";
-  for (const child of Array.from(li.childNodes)) {
-    const childNode = child as any;
-    const t = childNode.tagName ? childNode.tagName.toLowerCase() : "";
+  for (const child of Array.from(li.childNodes as ArrayLike<any>)) {
+    const t = child.tagName ? child.tagName.toLowerCase() : "";
     if (t === "ul" || t === "ol") {
       sublists += "\n" + nodeToMd(child, ctx, NodeClass).replace(/^\n/, "");
     } else {
@@ -160,66 +175,23 @@ function listItemToMd(li: any, ctx: ConvertContext, NodeClass: any): string {
   return text.trim() + sublists;
 }
 
-function tableToMd(table: any, NodeClass: any): string {
-  const rows = Array.from(table.querySelectorAll("tr"));
-  if (!rows.length) return "";
+function cellToMdInline(td: any, NodeClass: any): string {
+  const innerCtx: ConvertContext = { listStack: [] };
+  const paras: string[] = [];
 
-  // Convert cell HTML to text, preserving <br> and <p> breaks as "<br>" inline
-  const toCell = (td: any) => {
-    // Replace block-level breaks with a placeholder before extracting text
-    let html = (td.innerHTML || "")
-      .replace(/<br\s*\/?>/gi, "\x00BR\x00") // <br>
-      .replace(/<\/p>\s*<p[^>]*>/gi, "\x00BR\x00") // </p><p>
-      .replace(/<[^>]+>/g, ""); // strip remaining tags
-    const decoded = html
-      .replace(/&amp;/g, "&")
-      .replace(/&lt;/g, "<")
-      .replace(/&gt;/g, ">")
-      .replace(/&nbsp;/g, " ")
-      .replace(/&#\d+;/g, (c: string) =>
-        String.fromCharCode(parseInt(c.slice(2, -1))),
-      );
-    return (
-      decoded
-        .replace(/\x00BR\x00/g, "<br>") // use HTML <br> inside MD table cell
-        .replace(/\|/g, "\\|")
-        .replace(/\n/g, " ")
-        .trim() || " "
-    );
-  };
+  for (const child of Array.from(td.childNodes as ArrayLike<any>)) {
+    const tag = child.tagName ? child.tagName.toLowerCase() : "";
+    let text: string;
+    if (tag === "p") {
+      text = Array.from(child.childNodes as ArrayLike<any>)
+        .map((c) => nodeToMd(c, innerCtx, NodeClass))
+        .join("")
+        .trim();
+    } else {
+      text = nodeToMd(child, innerCtx, NodeClass);
+    }
+    if (text.trim()) paras.push(text.trim());
+  }
 
-  const allRows = rows.map((tr: any) =>
-    Array.from(tr.querySelectorAll("th,td")).map(toCell),
-  );
-  if (!allRows.length) return "";
-
-  const colCount = Math.max(...allRows.map((r) => r.length));
-  const padded = allRows.map((r: any) => {
-    while (r.length < colCount) r.push(" ");
-    return r;
-  });
-
-  // Column widths — measure longest line within each cell (cells may contain <br>)
-  const cellWidth = (s: string) =>
-    Math.max(...s.split("<br>").map((l) => l.length));
-  const colWidths = Array.from({ length: colCount }, (_, i) =>
-    Math.max(3, ...padded.map((r: any) => cellWidth(r[i] || ""))),
-  );
-
-  const fmtRow = (cells: any) =>
-    "| " +
-    cells.map((c: string, i: number) => c.padEnd(colWidths[i])).join(" | ") +
-    " |";
-  const sepRow = "| " + colWidths.map((w) => "-".repeat(w)).join(" | ") + " |";
-
-  const [head, ...body] = padded;
-  return (
-    "\n" +
-    fmtRow(head) +
-    "\n" +
-    sepRow +
-    "\n" +
-    body.map(fmtRow).join("\n") +
-    "\n"
-  );
+  return paras.join("<br>").replace(/\|/g, "\\|").replace(/\n/g, " ") || " ";
 }

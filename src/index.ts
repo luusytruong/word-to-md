@@ -14,7 +14,7 @@ export async function convertBufferToMarkdown(
       ? { arrayBuffer: buffer }
       : { buffer: buffer };
   const htmlResult = await mammoth.convertToHtml(options);
-  const markdown = htmlToMarkdown(htmlResult.value).trim() + "\n";
+  const markdown = (await htmlToMarkdown(htmlResult.value)).trim() + "\n";
   return markdown;
 }
 
